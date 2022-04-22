@@ -70,7 +70,7 @@ def get_standings(contest_id, count=1000):
 
 
 
-languages = [['Java 11', 'Java 8'], 'Haskell', ['Kotlin 1.4', 'Kotlin 1.5', 'Kotlin 1.6'], 'Ocaml', 'Go']
+languages = [['Java 11', 'Java 8'], ['Haskell'], ['Kotlin 1.4', 'Kotlin 1.5', 'Kotlin 1.6'], ['Ocaml'], ['Go'], ['GNU C++17', 'GNU C++14']]
 
 
 def get_problem_submissions(contest_id, problem, language_id=0):
@@ -150,9 +150,9 @@ def get_problem_submissions(contest_id, problem, language_id=0):
     return submissions
 
 
-def get_processed_problems():
+def get_processed_problems(language):
     try:
-        f = open('../data/codeforces_tags_java_processed.csv', 'r')
+        f = open('../data/codeforces_tags_{}_processed.csv'.format(language), 'r')
         processed = set()
         reader = csv.reader(f)
         for problem in reader:
@@ -166,11 +166,32 @@ def get_processed_problems():
         return set()
 
 
-def get_data():
-    processed = get_processed_problems()
+def get_language_id(language):
+    if language == 'java':
+        return 0
+    elif language == 'haskell':
+        return 1
+    elif language == 'kotlin':
+        return 2
+    elif language == 'ocaml':
+        return 3
+    elif language == 'go':
+        return 4
+    elif language == 'cpp':
+        return 5
+    else:
+        raise NameError('Unexpected language')
+
+
+
+def get_data(language):
+
+    language_id = get_language_id(language)
+
+    processed = get_processed_problems(language)
     print(len(processed))
-    f = open('../data/codeforces_tags_java.csv', 'a')
-    problem_f = open('../data/codeforces_tags_java_processed.csv', 'a')
+    f = open('../data/codeforces_tags_{}.csv'.format(language), 'a')
+    problem_f = open('../data/codeforces_tags_{}_processed.csv'.format(language), 'a')
     writer = csv.writer(f, quoting=csv.QUOTE_ALL)
     problem_writer = csv.writer(problem_f, quoting=csv.QUOTE_ALL)
     problems = get_problems()
@@ -180,7 +201,7 @@ def get_data():
         if (str(problem.json['contestId']), problem.json['index']) in processed:
             continue
         tags = ','.join(problem.tags)
-        submissions = get_problem_submissions(problem.json['contestId'], problem.json['index'])
+        submissions = get_problem_submissions(problem.json['contestId'], problem.json['index'], language_id=language_id)
         for sub in submissions:
             code = sub
             code = code.replace('\n', '\\n')
@@ -192,6 +213,3 @@ def get_data():
             print('{} problems processed'.format(total))
     f.close()
     problem_f.close()
-
-
-get_data()
