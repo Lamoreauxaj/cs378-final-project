@@ -6,7 +6,6 @@ import random
 
 import codeforces
 
-
 @click.group()
 def data():
     pass
