@@ -79,40 +79,43 @@ def get_problem_submissions(contest_id, problem, language_id=0):
     MAX_SUBMISSIONS = 4
     language = languages[language_id]
     print('getting {}/{}'.format(contest_id, problem))
+    options = Options()
+    options.headless = True
+    driver = webdriver.Chrome(options=options)
     for language_name in language:
         if len(submissions) >= MAX_SUBMISSIONS:
             break
-        options = Options()
-        options.headless = True
         driver_tries = 0
         while driver_tries < 3:
             try:
-                driver = webdriver.Chrome(options=options)
                 driver.get(url)
+                time.sleep(2)
                 verdict_name = Select(driver.find_element_by_id('verdictName'))
                 verdict_name.select_by_visible_text('Accepted')
                 language_select = Select(driver.find_element_by_id('programTypeForInvoker'))
                 language_select.select_by_visible_text(language_name)
+                print(language_select.all_selected_options[0].get_attribute('value'))
                 apply_button = driver.find_element_by_css_selector('input[value=\'Apply\']')
                 apply_button.click()
                 cookies = driver.get_cookies()
                 request_cookies = {}
                 for cookie in cookies:
-                    if cookie['name'] == 'JSESSIONID':
-                        request_cookies['JSESSIONID'] = cookie['value']
-                        break
-                driver.close()
+                    request_cookies[cookie['name']] = cookie['value']
                 break
-            except:
+            except Exception as e:
+                print(e)
                 time.sleep(40)
                 driver_tries += 1
                 continue
         if driver_tries >= 3:
             break
-        req = requests.get(url, cookies=request_cookies)
-        bs = BeautifulSoup(req.text, features='html.parser')
+        driver.get(url)
+        time.sleep(1)
+        text = str(driver.find_element_by_id('body').get_attribute('innerHTML'))
+        # req = requests.get(url, cookies=request_cookies, allow_redirects=True)
+        bs = BeautifulSoup(text, features='html.parser')
         for tr in bs.find_all('tr'):
-            time.sleep(3)
+            time.sleep(1)
             tries = 0
             while tries < 3:
                 try:
@@ -122,11 +125,14 @@ def get_problem_submissions(contest_id, problem, language_id=0):
                     if 'No items' in cells[0].contents[0]:
                         break
                     href = 'https://codeforces.com' + cells[0].a['href']
-                    sub = BeautifulSoup(requests.get(href).text, features='html.parser')
+                    driver.get(href)
+                    time.sleep(1)
+                    text = driver.find_element_by_id('body').get_attribute('innerHTML')
+                    sub = BeautifulSoup(text, features='html.parser')
                     lang = cells[4].get_text()
                     status = cells[5].get_text()
                     if status.strip() == 'Accepted':
-                        code = sub.find(class_='linenums').contents[0]
+                        code = sub.find(class_='linenums').contents[0].get_text()
                         submissions.append(code)
                         if len(submissions) >= MAX_SUBMISSIONS:
                             break
@@ -146,6 +152,7 @@ def get_problem_submissions(contest_id, problem, language_id=0):
         if len(submissions) >= MAX_SUBMISSIONS:
             break
 
+    driver.close()
     print(len(submissions), 'found')
     return submissions
 
