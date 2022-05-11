@@ -10,17 +10,21 @@ import code2seq
 
 
 Language.build_library(
-    'build/my-languages.so',
+    'src/build/my-languages.so',
     [
-        'vendor/tree-sitter-java'
+        'src/vendor/tree-sitter-java',
+        'src/vendor/tree-sitter-kotlin'
     ]
 )
 
-JAVA_LANGUAGE = Language('build/my-languages.so', 'java')
+JAVA_LANGUAGE = Language('src/build/my-languages.so', 'java')
+KOTLIN_LANGUAGE = Language('src/build/my-languages.so', 'kotlin')
 
 def get_language(dataset):
     if dataset == 'codeforces_tags_java':
         return JAVA_LANGUAGE
+    elif dataset == 'codeforces_tags_kotlin':
+        return KOTLIN_LANGUAGE
     raise NameError('failed')
 
 
@@ -29,19 +33,21 @@ classes = []
 classes_map = {}
 
 
-def read_classes(data_dir, dataset):
+def read_classes(data_dir, datasets):
     global classes, classes_map, total_classes
-    data_file = open(os.path.join(data_dir, '{}.csv'.format(dataset)), 'r')
-    reader = csv.reader(data_file)
     classes_seen = set()
-    for row in reader:
-        tags = row[1].split(',')
-        for tag in tags:
-            if tag not in classes_seen and tag:
-                classes_seen.add(tag)
-                classes.append(tag)
-                classes_map[tag] = total_classes
-                total_classes += 1
+    for dataset in datasets:
+        data_file = open(os.path.join(data_dir, '{}.csv'.format(dataset)), 'r')
+        reader = csv.reader(data_file)
+        for row in reader:
+            tags = row[1].split(',')
+            for tag in tags:
+                if tag not in classes_seen and tag:
+                    classes_seen.add(tag)
+                    classes.append(tag)
+                    classes_map[tag] = total_classes
+                    total_classes += 1
+        data_file.close()
 
 
 class Example:
@@ -51,6 +57,16 @@ class Example:
         self.tree = parser.parse(bytes(code, 'utf8'))
         self.tags = list(filter(lambda x: x, tags.split(',')))
         self.truth_ = None
+        self.truth_ids_ = None
+
+
+    def truth_ids(self):
+       if self.truth_ids_ is None:
+           self.truth_ids_ = []
+           for tag in self.tags:
+               if tag in classes_map:
+                   self.truth_ids_.append(classes_map[tag])
+       return self.truth_ids_
 
 
     def truth(self):
@@ -62,9 +78,11 @@ class Example:
         return [self.truth_]
 
 
-
-def get_train_data(dataset, data_dir, max_examples=None):
-    train_file = open(os.path.join(data_dir, '{}_train.csv'.format(dataset)), 'r')
+def get_train_data(dataset, data_dir, max_examples=None, validation=False):
+    if validation:
+        train_file = open(os.path.join(data_dir, '{}_validation.csv'.format(dataset)), 'r')
+    else:
+        train_file = open(os.path.join(data_dir, '{}_train.csv'.format(dataset)), 'r')
     reader = csv.reader(train_file)
     parser = Parser()
     parser.set_language(get_language(dataset))
@@ -72,7 +90,9 @@ def get_train_data(dataset, data_dir, max_examples=None):
     for row in reader:
         code = row[0]
         code = code.replace('\\n', '\n')
-        train_examples.append(Example(code, row[1], parser))
+        example = Example(code, row[1], parser)
+        if len(example.tags) > 0:
+            train_examples.append(example)
         if max_examples is not None and len(train_examples) >= max_examples:
             break
     train_file.close()
@@ -85,31 +105,42 @@ def data():
 
 
 @data.command()
-@click.option('--data-dir', default='../data')
-@click.option('--dataset', help='which dataset to use')
+@click.option('--data-dir', default='data')
+@click.option('--datasets', help='comma separated lists of which dataset to use')
 @click.option('--max-train-examples', type=int, help='how many train examples to use')
-def train_code2seq(data_dir, dataset, max_train_examples):
-    read_classes(data_dir, dataset)
-    train_data = get_train_data(dataset, data_dir, max_examples=max_train_examples)
-    model = code2seq.Code2Seq(train_data, num_classes=total_classes)
+@click.option('--save-dir')
+@click.option('--cuda', default=False, type=bool)
+def train_code2seq(data_dir, datasets, max_train_examples, save_dir, cuda):
+    datasets = datasets.split(',')
+    read_classes(data_dir, datasets)
+    train_data = []
+    for dataset in datasets:
+        train_data += get_train_data(dataset, data_dir, max_examples=max_train_examples)
+    validation_data = []
+    for dataset in datasets:
+        validation_data += get_train_data(dataset, data_dir, validation=True, max_examples=max_train_examples)
+    model = code2seq.Code2Seq(num_classes=total_classes, save_dir=save_dir, cuda=cuda)
+    model.train(train_data, validation_data)
 
 
 def get_raw_data_file(dataset):
-    path = '../data/'
+    path = 'data/'
     if dataset == 'codeforces_tags_java':
+        return '{}{}.csv'.format(path, dataset)
+    elif dataset == 'codeforces_tags_kotlin':
         return '{}{}.csv'.format(path, dataset)
     raise NameError('Invalid dataset')
 
 
 @data.command()
-@click.option('--data-dir', default='../data')
+@click.option('--data-dir', default='data')
 @click.option('--language', help='which language to scrape')
 def codeforces_scrape(data_dir, language):
     codeforces.get_data(language)
 
 
 @data.command()
-@click.option('--data-dir', default='../data')
+@click.option('--data-dir', default='data')
 @click.option('--dataset', help='which dataset to use')
 @click.option('--train-ratio', default=0.9, help='how much is training data')
 @click.option('--validation-ratio', default=0.05, help='how much is validation data')
